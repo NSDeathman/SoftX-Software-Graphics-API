@@ -46,7 +46,7 @@ class float4;
     * @note Perfect for 4D graphics, homogeneous coordinates, RGBA colors, and quaternions
     * @note Includes comprehensive HLSL-like function set and color operations
     */
-class float4
+class alignas(16) float4
 {
 public:
     // Union for SSE optimization

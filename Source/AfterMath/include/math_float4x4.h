@@ -67,14 +67,14 @@ inline float4x4 operator*(const float4x4& a, const float4x4& b) noexcept;
  *
  * @note Size is exactly 64 bytes (4 float4 rows with 16-byte alignment each)
  */
-class float4x4
+class alignas(16) float4x4
 {
 public:
     // Data members (public for direct access, aligned for SSE)
-    alignas(16) float4 row0; ///< First row  [m00, m01, m02, m03]
-    alignas(16) float4 row1; ///< Second row [m10, m11, m12, m13]
-    alignas(16) float4 row2; ///< Third row  [m20, m21, m22, m23]
-    alignas(16) float4 row3; ///< Fourth row [m30, m31, m32, m33]  <- translation in .xyz
+    float4 row0; ///< First row  [m00, m01, m02, m03]
+    float4 row1; ///< Second row [m10, m11, m12, m13]
+    float4 row2; ///< Third row  [m20, m21, m22, m23]
+    float4 row3; ///< Fourth row [m30, m31, m32, m33]  <- translation in .xyz
 
     // ============================================================================
     // Constructors
