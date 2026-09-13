@@ -14,7 +14,7 @@
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
-class SOFTX_API Texture
+class alignas(16) Texture
 {
 public:
     explicit Texture(uint2 size, uint numMips = 1)

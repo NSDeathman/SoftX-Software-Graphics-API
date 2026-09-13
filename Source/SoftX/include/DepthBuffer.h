@@ -16,7 +16,7 @@
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
-class SOFTX_API DepthBuffer
+class alignas(16) DepthBuffer
 {
 public:
     enum class HiZReduction
