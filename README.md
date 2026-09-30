@@ -43,7 +43,7 @@ SoftX is designed from the ground up for performance and flexibility:
 - **Device** – creates resources, owns the backbuffer and depth buffer, manages console output when in ASCII mode.
 - **Immediate Context** – the main rendering channel; submits commands directly to the driver (i.e., the software rasteriser).
 - **Deferred Contexts** – record rendering commands into command lists that can be executed later on the immediate context; perfect for multithreaded scene generation.
-- **Rasteriser** – pluggable backend (scalar, SSE, AVX) automatically chosen by `CPUDetector`.
+- **Rasteriser** – pluggable backend (scalar, SSE) automatically chosen by `CPUDetector`.
 - **Tile‑based renderer** – splits the screen into tiles, bins triangles, and processes tiles in parallel using a thread pool.
 - **Occlusion Query** – dedicated query rasteriser runs geometry in a low‑overhead async pass, recording visible sample counts without pixel shading.
 - **Depth Buffer** – supports multiple MIP levels (Hi‑Z) for fast hierarchical depth tests, generated on demand.
