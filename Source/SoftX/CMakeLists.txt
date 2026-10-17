@@ -11,6 +11,7 @@ set(SOFTX_SOURCES
     src/Device.cpp
     src/DeviceContext.cpp
     src/Texture.cpp
+    src/DepthBuffer.cpp
     src/OcclusionQuery.cpp
 )
 
@@ -89,7 +90,7 @@ source_group("Source Files\\Tools\\Threading"         		FILES 	src/ThreadPool.h
 
 source_group("Source Files\\Tools\\Tile binning"     		FILES 	src/TileGrid.h)
 
-source_group("Source Files\\Resources"     			FILES 	src/InternalTypes.h src/Texture.cpp)
+source_group("Source Files\\Resources"     			FILES 	src/InternalTypes.h src/Texture.cpp src/DepthBuffer.cpp)
 
 source_group("Source Files\\Rastization"     			FILES 	src/RasterizerCommon.h
 									src/Rasterizer.h

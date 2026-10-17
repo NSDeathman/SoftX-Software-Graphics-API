@@ -9,14 +9,14 @@
 #include <cassert>
 #include <limits>
 #include <vector>
-#include <intrin.h>
+#include <xmmintrin.h>
 
 #include "LibInternal.h"
 #include "ThirdPartyIncluding.h"
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
-class alignas(16) DepthBuffer
+class SOFTX_API DepthBuffer
 {
 public:
     enum class HiZReduction
@@ -202,37 +202,10 @@ public:
 
     void GenerateHiZ(HiZReduction mode = HiZReduction::Min)
     {
-        for (uint m = 1; m < MipCount(); ++m)
+        switch (mode)
         {
-            const Level& prev = levels[m - 1];
-            const Level& curr = levels[m];
-            const __m128* prevData = LevelData(m - 1);
-            __m128* currData = LevelData(m);
-
-            uint nw = curr.resolution.x;
-            uint nh = curr.resolution.y;
-            uint pwp = prev.widthPadded;
-
-            for (uint y = 0; y < nh; ++y)
-            {
-                for (uint x = 0; x < nw; ++x)
-                {
-                    uint px = x * 2;
-                    uint py = y * 2;
-
-                    float d00 = prevData[(py * pwp + px) / 4].m128_f32[px % 4];
-                    float d10 = prevData[(py * pwp + px + 1) / 4].m128_f32[(px + 1) % 4];
-                    float d01 = prevData[((py + 1) * pwp + px) / 4].m128_f32[px % 4];
-                    float d11 = prevData[((py + 1) * pwp + px + 1) / 4].m128_f32[(px + 1) % 4];
-
-                    float reduced = (mode == HiZReduction::Min)
-                        ? std::min({ d00, d10, d01, d11 })
-                        : std::max({ d00, d10, d01, d11 });
-
-                    uint idx = y * curr.widthPadded + x;
-                    currData[idx / 4].m128_f32[idx % 4] = reduced;
-                }
-            }
+        case HiZReduction::Min: GenerateHiZImpl<HiZReduction::Min>(); break;
+        case HiZReduction::Max: GenerateHiZImpl<HiZReduction::Max>(); break;
         }
     }
 
@@ -264,6 +237,9 @@ private:
         }
         return count;
     }
+
+    template <HiZReduction Mode>
+    void GenerateHiZImpl();
 };
 
 SOFTX_END
