@@ -5,7 +5,7 @@
 /////////////////////////////////////////////////////////////////
 #pragma once
 /////////////////////////////////////////////////////////////////
-#include "../include/LibInternal.h"
+#include "../include/Common.h"
 #include "../include/DepthBuffer.h"
 #include "RasterizerCommon.h"
 /////////////////////////////////////////////////////////////////
@@ -23,14 +23,11 @@ namespace Rasterizer
      * of color, normal, UV, and screen‑space position is skipped.
      */
     static inline void RasterizeTriangle(const RasterizerCommon::TriangleSetup& setup,
-                                         const RasterizerState& rasterizerState,
+                                         const PipelineState& pso,
                                          DepthBuffer& depthBuffer,
-                                         Texture* renderTarget,
-                                         const Viewport& viewport,
-                                         const PixelShader& pixelShader,
+                                         Texture& renderTarget,
                                          const ConstantBuffer& constantBuffer,
-                                         const TextureTable* textureTable,
-                                         uint2 tileMin,
+                                         uint2 tileMin, 
                                          uint2 tileMax)
     {
         // Intersect the triangle’s bounding box with the tile extent
@@ -87,36 +84,33 @@ namespace Rasterizer
                                           beta  * setup.v1.ClipSpacePosition.w +
                                           gamma * setup.v2.ClipSpacePosition.w;
 
-                    float depth = RasterizerCommon::ComputeDepth(interpolatedZ, interpolatedW, viewport);
+                    float depth = RasterizerCommon::ComputeDepth(interpolatedZ, interpolatedW, pso.viewport);
                     float storedDepth = depthBuffer.At(int2(x, y));
 
                     // ---- 2. Early exit if depth test fails ----
-                    if (RasterizerCommon::DepthTest(depth, storedDepth, rasterizerState.depthFunc))
+                    if (RasterizerCommon::DepthTest(depth, storedDepth, pso.depth.func))
                     {
                         // Update depth buffer if needed
-                        if (rasterizerState.depthWriteEnable)
+                        if (pso.depth.writeEnable)
                             depthBuffer.At(int2(x, y)) = depth;
 
                         // ---- 3. Full attribute interpolation only when visible ----
-                        if (renderTarget)
-                        {
-                            Interpolant fragment;
+                        Interpolant fragment;
 
-                            // Perspective‑correct attributes
-                            for(int attr = 0; attr < SOFT_MAX_ATTRIBUTES_COUNT; ++attr)
-                                fragment.Attributes[attr] = (weight0 * setup.v0.Attributes[attr] + 
-                                                             weight1 * setup.v1.Attributes[attr] + 
-                                                             weight2 * setup.v2.Attributes[attr]) * inverseTotalWeight;
+                        // Perspective‑correct attributes
+                        for(int attr = 0; attr < SOFT_MAX_ATTRIBUTES_COUNT; ++attr)
+                            fragment.Attributes[attr] = (weight0 * setup.v0.Attributes[attr] + 
+                                                         weight1 * setup.v1.Attributes[attr] + 
+                                                         weight2 * setup.v2.Attributes[attr]) * inverseTotalWeight;
 
-                            // Screen‑space linear interpolation
-                            fragment.ClipSpacePosition.x = alpha * setup.v0.ClipSpacePosition.x + beta * setup.v1.ClipSpacePosition.x + gamma * setup.v2.ClipSpacePosition.x;
-                            fragment.ClipSpacePosition.y = alpha * setup.v0.ClipSpacePosition.y + beta * setup.v1.ClipSpacePosition.y + gamma * setup.v2.ClipSpacePosition.y;
-                            fragment.ClipSpacePosition.z = interpolatedZ;  // already computed
-                            fragment.ClipSpacePosition.w = interpolatedW;
+                        // Screen‑space linear interpolation
+                        fragment.ClipSpacePosition.x = alpha * setup.v0.ClipSpacePosition.x + beta * setup.v1.ClipSpacePosition.x + gamma * setup.v2.ClipSpacePosition.x;
+                        fragment.ClipSpacePosition.y = alpha * setup.v0.ClipSpacePosition.y + beta * setup.v1.ClipSpacePosition.y + gamma * setup.v2.ClipSpacePosition.y;
+                        fragment.ClipSpacePosition.z = interpolatedZ;  // already computed
+                        fragment.ClipSpacePosition.w = interpolatedW;
 
-                            // Execute pixel shader and write to render target
-                            renderTarget->StreamWrite(uint2(x, y), pixelShader(fragment, constantBuffer, *textureTable).simd_);
-                        }
+                        // Execute pixel shader and write to render target
+                        renderTarget.StreamWrite(uint2(x, y), pso.pixelShader(fragment, constantBuffer).simd_);
                     }
                 }
 

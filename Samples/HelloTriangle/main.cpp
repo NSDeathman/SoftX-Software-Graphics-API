@@ -3,12 +3,11 @@
 // Copyright (c) 2026 NSDeathman
 // Licensed under the MIT License.
 /////////////////////////////////////////////////////////////////
+#include <SoftX.h>
+#include <AfterMath.h>
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-
-#include <SoftX.h>
-#include <AfterMath.h>
 /////////////////////////////////////////////////////////////////
 using namespace SoftX;
 using namespace AfterMath;
@@ -36,14 +35,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             int newHeight = HIWORD(lParam);
 
             if (newWidth > 0 && newHeight > 0)
-            {
-                PresentParameters newParams = g_device->GetPresentParams();
-                newParams.BackBufferSize = uint2(newWidth, newHeight);
-                g_device->Reset(newParams);
-
-                DeviceContext& ctx = g_device->GetImmediateContext();
-                ctx.SetViewport(Viewport(0.0f, 0.0f, newWidth, newHeight, 0.0f, 1.0f));
-            }
+                g_device->Resize(uint2(newWidth, newHeight));
         }
         return 0;
     }
@@ -67,51 +59,60 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
     RECT rc = { 0, 0, (LONG)windowSize.x, (LONG)windowSize.y };
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND Wnd = CreateWindowEx(0, "Hello Triangle", "SoftX Triangle Demo",
-                              WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                              rc.right - rc.left, rc.bottom - rc.top,
-                              nullptr, nullptr, hInstance, nullptr);
-    if (!Wnd) return -1;
+    HWND wnd = CreateWindowEx(0, 
+                              "Hello Triangle", 
+                              "SoftX 2 Triangle Demo",
+                              WS_OVERLAPPEDWINDOW, 
+                              CW_USEDEFAULT, 
+                              CW_USEDEFAULT,
+                              rc.right - rc.left, 
+                              rc.bottom - rc.top,
+                              nullptr, 
+                              nullptr, 
+                              hInstance, 
+                              nullptr);
+    if (!wnd) return -1;
 
-    ShowWindow(Wnd, nCmdShow);
-    UpdateWindow(Wnd);
+    ShowWindow(wnd, nCmdShow);
+    UpdateWindow(wnd);
 
-    PresentParameters params;
-    params.BackBufferSize = windowSize;
-    params.hDeviceWindow = Wnd;
-    params.Windowed = true;
+    DeviceConfig config;
+    config.backBufferSize = windowSize;
+    config.mode = PresentationMode::Windowed;
+    config.hwnd = wnd;
 
-    Device device(params);
+    Device device(config);
     g_device = &device;
-    DeviceContext& ctx = g_device->GetImmediateContext();
+
+    auto depthBuffer = device.CreateDepthBuffer(windowSize);
 
     VertexBuffer vb;
     vb.Reserve(3);
     vb.Add({ float3(-1.0f, -1.0f, 0.0f), float4(1.0f, 0.0f, 0.0f, 0.0f) });
-    vb.Add({ float3(0.0f, 1.0f, 0.0f), float4(0.0f, 1.0f, 0.0f, 0.0f) });
+    vb.Add({ float3(0.0f,  1.0f, 0.0f), float4(0.0f, 1.0f, 0.0f, 0.0f) });
     vb.Add({ float3(1.0f, -1.0f, 0.0f), float4(0.0f, 0.0f, 1.0f, 0.0f) });
 
-    auto vs = [](const Vertex& Input, ConstantBuffer, const TextureTable&) -> Interpolant
+    PipelineState pso;
+    pso.viewport = Viewport(0.0f, 0.0f, (float)windowSize.x, (float)windowSize.y, 0.0f, 1.0f);
+    pso.rasterizer.cullMode = CullMode::None;
+    pso.depth.func = ComparisonFunc::Less;
+    pso.depth.writeEnable = true;
+    pso.tileSize = 64;
+
+    pso.vertexShader = [](const Vertex& in, const ConstantBuffer&) -> Interpolant
     {
-        Interpolant Output;
-        Output.ClipSpacePosition = float4(Input.Position.xyz(), 1.0f);
-        Output.Attributes[0] = Input.Attributes[0];
-        return Output;
+        Interpolant out;
+        out.ClipSpacePosition = float4(in.Position.xyz(), 1.0f);
+        out.Attributes[0] = in.Attributes[0];
+        return out;
     };
-    auto ps = [](const Interpolant& Input, ConstantBuffer, const TextureTable&) -> float4
+    pso.pixelShader = [](const Interpolant& in, const ConstantBuffer&) -> float4
     {
-        return Input.Attributes[0];
+        return in.Attributes[0];
     };
 
-    ctx.SetRenderTarget(device.GetBackBuffer(), false);
-    ctx.SetViewport(Viewport(0.0f, 0.0f, windowSize.x, windowSize.y, 0.0f, 1.0f));
-    ctx.SetCullMode(CullMode::None);
-    ctx.SetDepthFunc(ComparisonFunc::Less);
-    ctx.SetFillMode(FillMode::Solid);
-    ctx.SetVertexBuffer(vb);
-    ctx.SetVertexShader(vs);
-    ctx.SetPixelShader(ps);
-    ctx.SetTileSize(64);
+    CommandList cmd(device);
+    uint2 lastSize = windowSize;
 
     MSG msg = {};
     while (msg.message != WM_QUIT)
@@ -121,11 +122,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
-        ctx.Clear(ClearFlags::All, float4(0.10f, 0.05f, 0.12f, 1.0f), 1.0f);
-        ctx.Draw();
-        g_device->Present();
+
+        uint2 currentSize = device.GetBackBuffer()->Size();
+        if (currentSize.x != lastSize.x || currentSize.y != lastSize.y)
+        {
+            depthBuffer = device.CreateDepthBuffer(currentSize);
+            pso.viewport = Viewport(0.0f, 0.0f, (float)currentSize.x, (float)currentSize.y, 0.0f, 1.0f);
+            lastSize = currentSize;
+        }
+
+        cmd.Begin();
+        cmd.SetPipeline(pso);
+        cmd.SetRenderTarget(device.GetBackBuffer());
+        cmd.SetDepthBuffer(depthBuffer.get());
+        cmd.SetVertexBuffer(vb);
+        cmd.Clear(float4(0.10f, 0.05f, 0.12f, 1.0f), 1.0f);
+        cmd.Draw();
+        cmd.End();
+        cmd.Execute();
+
+        device.Present();
     }
 
-	return 0;
+    g_device = nullptr;
+    return 0;
 }
 /////////////////////////////////////////////////////////////////

@@ -5,13 +5,14 @@
 /////////////////////////////////////////////////////////////////
 #pragma once
 /////////////////////////////////////////////////////////////////
-#include "LibInternal.h"
-#include "ThirdPartyIncluding.h"
+#include "Common.h"
 #include "Exceptions.h"
-#include "Texture.h"
+#include "Enums.h"
+#include "Vertex.h"
+#include "Buffers.h"
+#include "Pipeline.h"
 #include "DepthBuffer.h"
-#include "Types.h"
+#include "Texture.h"
+#include "CommandList.h"
 #include "Device.h"
-#include "DeviceContext.h"
-#include "OcclusionQuery.h"
 /////////////////////////////////////////////////////////////////

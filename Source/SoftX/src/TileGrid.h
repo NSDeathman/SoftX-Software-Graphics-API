@@ -5,11 +5,20 @@
 /////////////////////////////////////////////////////////////////
 #pragma once
 /////////////////////////////////////////////////////////////////
-#include "../include/LibInternal.h"
+#include "../include/Common.h"
 #include "../include/ThirdPartyIncluding.h"
 #include "RasterizerCommon.h"
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
+
+struct Tile
+{
+    uint2 min;
+    uint2 max;
+    std::vector<int> triangleIndices;
+
+    Tile(uint2 min, uint2 max) : min(min), max(max) {}
+};
 
 /**
  * Manages a uniform grid of tiles covering either the full render target

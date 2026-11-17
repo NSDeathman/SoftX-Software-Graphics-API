@@ -5,12 +5,12 @@
 /////////////////////////////////////////////////////////////////
 #pragma once
 /////////////////////////////////////////////////////////////////
-#include "../include/LibInternal.h"
+#include "../include/Common.h"
 #include "../include/DepthBuffer.h"
 #include "RasterizerCommon.h"
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
-
+/*
 namespace DepthRasterizer
 {
     template <ComparisonFunc Func>
@@ -23,14 +23,14 @@ namespace DepthRasterizer
         else if constexpr (Func == ComparisonFunc::Greater)      return _mm_cmpgt_ps(depths, stored);
         else if constexpr (Func == ComparisonFunc::NotEqual)     return _mm_cmpneq_ps(depths, stored);
         else if constexpr (Func == ComparisonFunc::GreaterEqual) return _mm_cmpge_ps(depths, stored);
-        else /* Always */                                        return _mm_castsi128_ps(_mm_set1_epi32(-1));
+        else / * Always * /                                        return _mm_castsi128_ps(_mm_set1_epi32(-1));
     }
 
 
-    /**
+    / **
      * Rasterizes a triangle for occlusion query – only depth is computed and
      * tested. Returns the number of visible (depth‑passing) pixels.
-     */
+     * /
     template <ComparisonFunc Func, bool DepthWriteEnable>
     static inline uint RasterizeTriangleTyped(const RasterizerCommon::TriangleSetup& setup,
                                               DepthBuffer& depthBuffer,
@@ -167,6 +167,6 @@ namespace DepthRasterizer
     }
 
 } // namespace DepthRasterizer
-
+*/
 SOFTX_END
 /////////////////////////////////////////////////////////////////

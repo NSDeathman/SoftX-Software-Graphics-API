@@ -5,9 +5,20 @@
 /////////////////////////////////////////////////////////////////
 #pragma once
 /////////////////////////////////////////////////////////////////
-#define SOFTX_API
-#define SOFTX_BEGIN namespace SoftX { using namespace AfterMath;
+#include "ThirdPartyIncluding.h"
+/////////////////////////////////////////////////////////////////
+#define SOFTX_BEGIN namespace SoftX { SOFTX_OPEN_NAMESPACES
 #define SOFTX_END }
+
+#ifdef SOFTX_BUILD_DLL
+#ifdef _WIN32
+#define SOFTX_API __declspec(dllexport)
+#else
+#define SOFTX_API
+#endif
+#else
+#define SOFTX_API
+#endif
 
 #if (defined(__cplusplus) && __cplusplus >= 202002L) || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
 #define SOFTX_CXX20_OR_LATER 1

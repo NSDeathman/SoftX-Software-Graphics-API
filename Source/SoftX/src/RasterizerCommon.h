@@ -6,7 +6,6 @@
 #pragma once
 /////////////////////////////////////////////////////////////////
 #include <optional>
-#include "InternalTypes.h"
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
@@ -179,7 +178,7 @@ namespace RasterizerCommon
     inline std::optional<TriangleSetup> CreateTriangleSetup(const Interpolant& a,
                                                             const Interpolant& b,
                                                             const Interpolant& c,
-                                                            const RasterizerState& state)
+                                                            CullMode cullMode)
     {
         const int x0 = ToFixed(a.ClipSpacePosition.x), y0 = ToFixed(a.ClipSpacePosition.y);
         const int x1 = ToFixed(b.ClipSpacePosition.x), y1 = ToFixed(b.ClipSpacePosition.y);
@@ -188,9 +187,8 @@ namespace RasterizerCommon
         int64_t area2 = EdgeFunctionInt(x0, y0, x1, y1, x2, y2);
         if (area2 == 0) return std::nullopt;
 
-        const CullMode cull = state.cullMode;
-        if (cull == CullMode::Back && area2 > 0) return std::nullopt;
-        if (cull == CullMode::Front && area2 < 0) return std::nullopt;
+        if (cullMode == CullMode::Back && area2 > 0) return std::nullopt;
+        if (cullMode == CullMode::Front && area2 < 0) return std::nullopt;
 
         int normSign = (area2 > 0) ? 1 : -1;
         if (area2 < 0) area2 = -area2;

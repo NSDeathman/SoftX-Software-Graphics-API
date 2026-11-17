@@ -3,20 +3,53 @@
 // Copyright (c) 2026 NSDeathman
 // Licensed under the MIT License.
 /////////////////////////////////////////////////////////////////
-#include <fstream>
-#include <iostream>
-
 #include "../include/SoftX.h"
 #include "ThreadUtils.h"
+#include <fstream>
+#include <iostream>
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
-void Texture::Clear(float4 color, uint level)
+Texture::Texture(uint2 size) : resolution(size)
+                               ,widthPadded((size.x + 3u) & ~3u)
+                               ,pixelCount(static_cast<size_t>(widthPadded)* size.y)
 {
-    level = std::min(level, mipCount - 1);
-    const Level& lvl = levels[level];
-    size_t levelPixels = static_cast<size_t>(lvl.resolution.x) * lvl.resolution.y;
-    __m128* dest = pixels + lvl.offset;
+    if (size.x == 0 || size.y == 0)
+        SOFTX_THROW(InvalidArgument("Texture: zero-sized texture"));
+
+    pixels = new __m128[pixelCount];
+}
+
+Texture::~Texture()
+{
+    delete[] pixels;
+    pixels = nullptr;
+}
+
+void Texture::StreamWrite(uint2 coords, __m128 color)
+{
+    assert(coords.x < resolution.x&& coords.y < resolution.y);
+    _mm_stream_ps(reinterpret_cast<float*>(pixels + (coords.y * widthPadded + coords.x)), color);
+}
+
+void Texture::Write(uint2 coords, float4 color)
+{
+    assert(coords.x < resolution.x&& coords.y < resolution.y);
+    pixels[coords.y * widthPadded + coords.x] = color.simd_;
+}
+
+float4 Texture::Read(uint2 coords) const
+{
+    assert(coords.x < resolution.x&& coords.y < resolution.y);
+    float4 result;
+    result.simd_ = pixels[coords.y * widthPadded + coords.x];
+    return result;
+}
+
+void Texture::Clear(float4 color)
+{
+    size_t levelPixels = static_cast<size_t>(resolution.x) * resolution.y;
+    __m128* dest = pixels;
     __m128 col = color.simd_;
 
     const uint32_t numThreads = ThreadPoolManager::Get().threadCount();
@@ -30,91 +63,20 @@ void Texture::Clear(float4 color, uint level)
         std::atomic<size_t> next(0);
         for (uint32_t t = 0; t < numThreads; ++t)
         {
-            ThreadPoolManager::Get().enqueue([&]() 
+            ThreadPoolManager::Get().enqueue([&]()
                 {
-                size_t i;
-                while ((i = next.fetch_add(1024)) < levelPixels)
-                {
-                    size_t end = std::min(i + 1024, levelPixels);
-                    for (; i < end; ++i)
-                        _mm_stream_ps(reinterpret_cast<float*>(dest + i), col);
-                }
+                    size_t i;
+                    while ((i = next.fetch_add(1024)) < levelPixels)
+                    {
+                        size_t end = std::min(i + 1024, levelPixels);
+                        for (; i < end; ++i)
+                            _mm_stream_ps(reinterpret_cast<float*>(dest + i), col);
+                    }
                 });
         }
         ThreadPoolManager::Get().wait();
     }
     _mm_sfence();
-}
-
-void Texture::GenerateMips()
-{
-    if (mipCount <= 1)
-        return;
-
-    const Level& baseLevel = levels[0];
-    uint w = baseLevel.resolution.x;
-    uint h = baseLevel.resolution.y;
-
-    uint totalPixelsNeeded = w * h;
-    uint tmpW = w, tmpH = h;
-    while (tmpW > 1 || tmpH > 1)
-    {
-        tmpW = std::max(1u, tmpW / 2);
-        tmpH = std::max(1u, tmpH / 2);
-        totalPixelsNeeded += tmpW * tmpH;
-    }
-
-    __m128* newPixels = new __m128[totalPixelsNeeded];
-    Level* newLevels = new Level[mipCount];
-
-    uint basePixelCount = w * h;
-    std::copy(pixels + baseLevel.offset, pixels + baseLevel.offset + basePixelCount, newPixels);
-
-    newLevels[0].resolution = uint2(w, h);
-    newLevels[0].offset = 0;
-
-    uint currentOffset = basePixelCount;
-    uint levelIndex = 1;
-    uint prevW = w, prevH = h;
-    const __m128* prevData = newPixels;
-
-    while (prevW > 1 || prevH > 1)
-    {
-        uint nw = std::max(1u, prevW / 2);
-        uint nh = std::max(1u, prevH / 2);
-
-        for (uint y = 0; y < nh; ++y)
-        {
-            for (uint x = 0; x < nw; ++x)
-            {
-                uint base = 2 * y * prevW + 2 * x;
-                __m128 a = prevData[base];
-                __m128 b = prevData[base + 1];
-                __m128 c = prevData[base + prevW];
-                __m128 d = prevData[base + prevW + 1];
-
-                __m128 sum = _mm_add_ps(
-                    _mm_add_ps(a, b),
-                    _mm_add_ps(c, d));
-                newPixels[currentOffset + y * nw + x] = _mm_mul_ps(sum, _mm_set1_ps(0.25f));
-            }
-        }
-
-        newLevels[levelIndex].resolution = uint2(nw, nh);
-        newLevels[levelIndex].offset = currentOffset;
-
-        currentOffset += nw * nh;
-        prevW = nw;
-        prevH = nh;
-        prevData = newPixels + currentOffset - nw * nh;
-        ++levelIndex;
-    }
-
-    delete[] pixels;
-    delete[] levels;
-    pixels = newPixels;
-    pixelCount = totalPixelsNeeded;
-    levels = newLevels;
 }
 
 void Texture::SaveToTGA(const char* filename) const
@@ -143,9 +105,9 @@ void Texture::SaveToTGA(const char* filename) const
     {
         for (uint x = 0; x < w; ++x)
         {
-            __m128 color = Read(uint2(x, y));
+            float4 color = Read(uint2(x, y));
             float rgba[4];
-            _mm_storeu_ps(rgba, color);
+            _mm_storeu_ps(rgba, color.simd_);
             uint8_t b = static_cast<uint8_t>(AfterMath::clamp(rgba[2] * 255.0f, 0.0f, 255.0f));
             uint8_t g = static_cast<uint8_t>(AfterMath::clamp(rgba[1] * 255.0f, 0.0f, 255.0f));
             uint8_t r = static_cast<uint8_t>(AfterMath::clamp(rgba[0] * 255.0f, 0.0f, 255.0f));

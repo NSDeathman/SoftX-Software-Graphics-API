@@ -42,8 +42,6 @@ UpgradeLog*.htm
 Thumbs.db
 
 # Dependencies
-sdk/3d_sdk/
-sdk/dxsdk_mar2009/
 dep/
 packages/
 

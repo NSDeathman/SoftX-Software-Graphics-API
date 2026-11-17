@@ -6,42 +6,17 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
 add_library(SoftX STATIC)
 
-set(SOFTX_SOURCES
-    src/CPUDetector.cpp
-    src/Device.cpp
-    src/DeviceContext.cpp
-    src/Texture.cpp
-    src/DepthBuffer.cpp
-    src/OcclusionQuery.cpp
+file(GLOB_RECURSE SOFTX_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 )
 
-set(SOFTX_PRIVATE_HEADERS
-    src/CPUDetector.h
-    src/RasterizerCommon.h
-    src/DepthRasterizer.h
-    src/Rasterizer.h
-    src/TileGrid.h
-    src/ThreadPool.h
-    src/ThreadPoolManager.h
-    src/ThreadUtils.h
-    src/InternalTypes.h
+file(GLOB_RECURSE SOFTX_PUBLIC_HEADERS CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
 )
 
-set(SOFTX_PUBLIC_HEADERS
-    include/DepthBuffer.h
-    include/Device.h
-    include/DeviceContext.h
-    include/Exceptions.h
-    include/LibInternal.h
-    include/OcclusionQuery.h
-    include/SoftX.h
-    include/Texture.h
-    include/ThirdPartyIncluding.h
-    include/Types.h
-)
-
-target_sources(SoftX PRIVATE ${SOFTX_SOURCES} ${SOFTX_PRIVATE_HEADERS})
-target_sources(SoftX PUBLIC ${SOFTX_PUBLIC_HEADERS})
+target_sources(SoftX PRIVATE ${SOFTX_SOURCES})
+target_sources(SoftX PUBLIC  ${SOFTX_PUBLIC_HEADERS})
 
 target_include_directories(SoftX
     PUBLIC
@@ -77,32 +52,5 @@ set_target_properties(SoftX PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/Source/SoftX/lib/$<IF:$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>,x64,x86>"
 )
 
-source_group("Source Files\\Core"          			FILES 	src/Device.cpp
-									src/DeviceContext.cpp
-									src/OcclusionQuery.cpp)
-
-source_group("Source Files\\Tools\\CPU Detection"         	FILES 	src/CPUDetector.h
-									src/CPUDetector.cpp)
-
-source_group("Source Files\\Tools\\Threading"         		FILES 	src/ThreadPool.h
-									src/ThreadPoolManager.h
-									src/ThreadUtils.h)
-
-source_group("Source Files\\Tools\\Tile binning"     		FILES 	src/TileGrid.h)
-
-source_group("Source Files\\Resources"     			FILES 	src/InternalTypes.h src/Texture.cpp src/DepthBuffer.cpp)
-
-source_group("Source Files\\Rastization"     			FILES 	src/RasterizerCommon.h
-									src/Rasterizer.h
-									src/DepthRasterizer.h)
-
-source_group("Header Files\\API"           			FILES 	include/SoftX.h
-									include/Device.h
-									include/DeviceContext.h
-									include/OcclusionQuery.h
-									include/Types.h
-                                                 			include/DepthBuffer.h
-									include/Exceptions.h
-									include/Texture.h
-                                                 			include/LibInternal.h
-									include/ThirdPartyIncluding.h)
+source_group("Source"  FILES ${SOFTX_SOURCES})
+source_group("Include" FILES ${SOFTX_PUBLIC_HEADERS})

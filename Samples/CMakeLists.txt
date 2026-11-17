@@ -1,5 +1,1 @@
 add_subdirectory(HelloTriangle)
-add_subdirectory(OcclusionQueries)
-add_subdirectory(CBuffers)
-add_subdirectory(ASCIIRendering)
-add_subdirectory(ScissorRect)

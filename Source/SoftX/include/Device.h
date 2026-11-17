@@ -5,52 +5,50 @@
 /////////////////////////////////////////////////////////////////
 #pragma once
 /////////////////////////////////////////////////////////////////
+#include "Common.h"
+#include "Texture.h"
+#include "DepthBuffer.h"
 #include <memory>
-
-#include "DeviceContext.h"
-#include "LibInternal.h"
-#include "ThirdPartyIncluding.h"
+#include <vector>
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
+
+enum class PresentationMode { Headless, Windowed };
+
+struct DeviceConfig
+{
+    uint2 backBufferSize{ 800, 600 };
+    PresentationMode mode = PresentationMode::Headless;
+    void* hwnd = nullptr;
+    uint workerThreads = 0;
+};
 
 class SOFTX_API Device
 {
 public:
-    explicit Device(const PresentParameters& params, size_t numThreads = 0);
+    explicit Device(const DeviceConfig& config);
     ~Device();
 
     Device(const Device&) = delete;
     Device& operator=(const Device&) = delete;
 
-    Device(Device&&) noexcept;
-    Device& operator=(Device&&) noexcept;
+    Texture* GetBackBuffer(uint index = 0);
+    std::shared_ptr<DepthBuffer> CreateDepthBuffer(uint2 size);
 
-    static Device CreateHeadless(uint2 backBufferSize);
+    void Resize(uint2 newSize);
 
-    void SetDeviceContext(std::unique_ptr<DeviceContext> ctx);
-    DeviceContext& GetDeviceContext();
-    const DeviceContext& GetDeviceContext() const;
-
-    DeviceContext& GetImmediateContext();
-    const DeviceContext& GetImmediateContext() const;
-
-    std::unique_ptr<DeviceContext> CreateDeferredContext()
-    {
-        return std::make_unique<DeviceContext>();
-    }
-
-    std::shared_ptr<Texture> GetBackBuffer();
-    std::shared_ptr<DepthBuffer> GetDepthBuffer();
-
-    PresentParameters& GetPresentParams();
-    const PresentParameters& GetPresentParams() const;
-
-    void Reset(const PresentParameters& newParams);
     void Present();
+    void WaitIdle();
 
 private:
-    class Impl;
-    std::unique_ptr<Impl> pImpl;
+    DeviceConfig config;
+    std::vector<std::shared_ptr<Texture>> backBuffers;
+
+#ifdef _WIN32
+    void* windowDC = nullptr;
+    void* dibSection = nullptr;
+    void PresentWindowed();
+#endif
 };
 
 SOFTX_END
