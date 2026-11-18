@@ -19,7 +19,6 @@
 #define PROFILE_STOP_CAPTURE() OPTICK_STOP_CAPTURE()
 #define PROFILE_SAVE_CAPTURE(name) OPTICK_SAVE_CAPTURE(name)
 #else
-#error
 #define PROFILE_FRAME(x)
 #define PROFILE_SCOPE(x)
 #define PROFILE_THREAD(x)
