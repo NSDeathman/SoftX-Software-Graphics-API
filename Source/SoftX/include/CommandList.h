@@ -17,7 +17,7 @@ class Device;
 
 class SOFTX_API CommandList
 {
-public:
+    public:
     explicit CommandList(Device& device);
     ~CommandList();
 
@@ -34,15 +34,18 @@ public:
     void SetVertexBuffer(VertexBuffer vb);
     void SetIndexBuffer(IndexBuffer ib);
     void SetConstantBuffer(ConstantBuffer cb);
+    void SetInstanceBuffer(InstanceBuffer ib);
 
     void Clear(float4 color, float depth = 1.0f);
     void Draw();
     void DrawIndexed();
+    void DrawInstanced();
+    void DrawIndexedInstanced();
 
     void Execute();
     std::future<void> ExecuteAsync();
 
-private:
+    private:
     struct DrawCall
     {
         PipelineState pso;
@@ -51,7 +54,9 @@ private:
         VertexBuffer vb;
         IndexBuffer ib;
         ConstantBuffer cb;
+        InstanceBuffer instanceBuffer;
         bool indexed = false;
+        bool instanced = false;
     };
 
     struct ClearCommand
@@ -81,6 +86,7 @@ private:
     VertexBuffer currentVb;
     IndexBuffer currentIb;
     ConstantBuffer currentCb;
+    InstanceBuffer currentInstanceBuffer;
 
     std::vector<Command> commands;
 };

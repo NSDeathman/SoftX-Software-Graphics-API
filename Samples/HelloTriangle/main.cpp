@@ -61,7 +61,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
     HWND wnd = CreateWindowEx(0, 
                               "Hello Triangle", 
-                              "SoftX 2 Triangle Demo",
+                              "SoftX Triangle Demo",
                               WS_OVERLAPPEDWINDOW, 
                               CW_USEDEFAULT, 
                               CW_USEDEFAULT,

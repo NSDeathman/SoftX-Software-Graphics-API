@@ -1,1 +1,3 @@
 add_subdirectory(HelloTriangle)
+add_subdirectory(DrawIndexed)
+add_subdirectory(Instancing)

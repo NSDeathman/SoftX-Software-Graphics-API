@@ -7,7 +7,10 @@
 /////////////////////////////////////////////////////////////////
 #include "ThirdPartyIncluding.h"
 /////////////////////////////////////////////////////////////////
-#define SOFTX_BEGIN namespace SoftX { SOFTX_OPEN_NAMESPACES
+#define SOFTX_BEGIN \
+    namespace SoftX \
+    { \
+    SOFTX_OPEN_NAMESPACES
 #define SOFTX_END }
 
 #ifdef SOFTX_BUILD_DLL
