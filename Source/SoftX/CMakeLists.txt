@@ -26,12 +26,19 @@ target_include_directories(SoftX
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+target_link_libraries(SoftX PUBLIC
+    $<$<CONFIG:ReleaseWithProfiling>:OptickCore>
+)
+
 target_compile_definitions(SoftX
+    PUBLIC
+        $<$<CONFIG:ReleaseWithProfiling>:USE_OPTICK=1>
+        $<$<CONFIG:ReleaseWithProfiling>:ENABLE_PROFILER>
     PRIVATE
         SOFTX_IMPLEMENTATION
         _LIB
         $<$<CONFIG:Debug>:_DEBUG>
-        $<$<CONFIG:Release>:NDEBUG>
+        $<$<OR:$<CONFIG:Release>,$<CONFIG:ReleaseWithProfiling>>:NDEBUG>
         $<$<CXX_COMPILER_ID:MSVC>:$<$<EQUAL:${CMAKE_SIZEOF_VOID_P},4>:WIN32>>
 )
 
@@ -39,12 +46,13 @@ if(MSVC)
     add_compile_options(/W4 /sdl)
     add_compile_options(/fp:fast)
     target_compile_options(SoftX PRIVATE
-        $<$<CONFIG:Release>:/GL /FR>
+        $<$<OR:$<CONFIG:Release>,$<CONFIG:ReleaseWithProfiling>>:/GL /FR>
     )
 endif()
 
 set_target_properties(SoftX PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    INTERPROCEDURAL_OPTIMIZATION_RELEASEWITHPROFILING TRUE
     UNITY_BUILD ON
 )
 
