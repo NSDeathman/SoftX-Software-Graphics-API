@@ -14,6 +14,10 @@
 #include "DepthBuffer.h"
 #include "Texture.h"
 #include "ResourceHandles.h"
+#include "CommandTypes.h"
+#include "CommandAllocator.h"
+#include "Fence.h"
 #include "CommandList.h"
+#include "CommandQueue.h"
 #include "Device.h"
 /////////////////////////////////////////////////////////////////

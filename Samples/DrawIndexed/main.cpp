@@ -28,13 +28,13 @@ void CreateCube(VertexBuffer& vb, IndexBuffer& ib)
 {
     const float3 positions[8] = {
         {-0.5f, -0.5f, -0.5f},
-        { 0.5f, -0.5f, -0.5f},
-        { 0.5f,  0.5f, -0.5f},
-        {-0.5f,  0.5f, -0.5f},
-        {-0.5f, -0.5f,  0.5f},
-        { 0.5f, -0.5f,  0.5f},
-        { 0.5f,  0.5f,  0.5f},
-        {-0.5f,  0.5f,  0.5f},
+        {0.5f, -0.5f, -0.5f},
+        {0.5f, 0.5f, -0.5f},
+        {-0.5f, 0.5f, -0.5f},
+        {-0.5f, -0.5f, 0.5f},
+        {0.5f, -0.5f, 0.5f},
+        {0.5f, 0.5f, 0.5f},
+        {-0.5f, 0.5f, 0.5f},
     };
     const int faces[6][4] = {
         {1, 5, 6, 2}, // +X
@@ -81,24 +81,24 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
-    case WM_KEYDOWN:
-        if (wParam == VK_ESCAPE)
-            DestroyWindow(hWnd);
-        return 0;
-    case WM_SIZE:
-    {
-        if (g_device && wParam != SIZE_MINIMIZED)
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+        case WM_KEYDOWN:
+            if (wParam == VK_ESCAPE)
+                DestroyWindow(hWnd);
+            return 0;
+        case WM_SIZE:
         {
-            int w = LOWORD(lParam);
-            int h = HIWORD(lParam);
-            if (w > 0 && h > 0)
-                g_device->Resize(uint2(w, h));
+            if (g_device && wParam != SIZE_MINIMIZED)
+            {
+                int w = LOWORD(lParam);
+                int h = HIWORD(lParam);
+                if (w > 0 && h > 0)
+                    g_device->Resize(uint2(w, h));
+            }
+            return 0;
         }
-        return 0;
-    }
     }
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
@@ -115,11 +115,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     wc.lpszClassName = "SoftXCubeDemo";
     RegisterClassEx(&wc);
 
-    RECT rc = { 0, 0, (LONG)g_windowSize.x, (LONG)g_windowSize.y };
+    RECT rc = {0, 0, (LONG)g_windowSize.x, (LONG)g_windowSize.y};
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
     HWND wnd = CreateWindowEx(0,
                               "SoftXCubeDemo",
-                              "SoftX Cube Demo (DrawIndexed)",
+                              "SoftX Cube Demo (Async Present)",
                               WS_OVERLAPPEDWINDOW,
                               CW_USEDEFAULT,
                               CW_USEDEFAULT,
@@ -129,7 +129,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
                               nullptr,
                               hInstance,
                               nullptr);
-    if (!wnd) return -1;
+    if (!wnd)
+        return -1;
 
     ShowWindow(wnd, nCmdShow);
     UpdateWindow(wnd);
@@ -138,13 +139,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     config.backBufferSize = g_windowSize;
     config.mode = PresentationMode::Windowed;
     config.hwnd = wnd;
+    config.swapChainBufferCount = 3;
+
     Device device(config);
     g_device = &device;
 
     DepthBufferHandle depthBufferHandle = device.CreateDepthBuffer(g_windowSize);
-
     VertexBufferHandle vbHandle = device.CreateVertexBuffer();
-    IndexBufferHandle  ibHandle = device.CreateIndexBuffer();
+    IndexBufferHandle ibHandle = device.CreateIndexBuffer();
     CreateCube(*device.GetVertexBuffer(vbHandle), *device.GetIndexBuffer(ibHandle));
 
     PipelineState pso;
@@ -156,7 +158,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     pso.vertexShader = CubeVS;
     pso.pixelShader = CubePS;
 
-    CommandList cmd(device);
+    const uint32_t ringSize = device.GetSwapChainBufferCount();
+    std::vector<CommandAllocator> allocators(ringSize);
+    std::vector<std::unique_ptr<CommandList>> lists(ringSize);
+    for (uint32_t i = 0; i < ringSize; ++i)
+        lists[i] = device.CreateCommandList();
+
+    CommandQueue& queue = device.GetCommandQueue();
+
     uint2 lastSize = g_windowSize;
     auto lastTime = std::chrono::steady_clock::now();
 
@@ -167,6 +176,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
+            if (msg.message == WM_QUIT)
+                break;
         }
 
         auto now = std::chrono::steady_clock::now();
@@ -174,7 +185,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         lastTime = now;
         g_cameraAngle += 0.6f * dt;
 
-        Texture* backBuffer = device.GetTexture(device.GetBackBufferHandle());
+        Texture* backBuffer = device.GetTexture(device.GetCurrentBackBufferHandle());
+        if (!backBuffer)
+            continue;
         uint2 currentSize = backBuffer->Size();
         if (currentSize.x != lastSize.x || currentSize.y != lastSize.y)
         {
@@ -187,6 +200,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
             lastSize = currentSize;
         }
 
+        const uint64_t waitPresent = device.BeginFrame();
+
         const float radius = 3.0f;
         const float height = 1.8f;
         float3 eye = float3(cosf(g_cameraAngle) * radius, height, sinf(g_cameraAngle) * radius);
@@ -198,25 +213,36 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         cb.modelViewProjection = viewProj;
         cb.objectColor = float4(0.95f, 0.75f, 0.25f, 1.0f);
 
-        cmd.Begin();
-        cmd.SetPipeline(pso);
-        cmd.SetRenderTarget(device.GetBackBufferHandle());
-        cmd.SetDepthBuffer(depthBufferHandle);
-        cmd.SetVertexBuffer(vbHandle);
-        cmd.SetIndexBuffer(ibHandle);
-        cmd.SetConstantBuffer(ConstantBuffer(cb));
-        cmd.Clear(float4(0.05f, 0.10f, 0.18f, 1.0f), 1.0f);
-        cmd.DrawIndexed();
-        cmd.End();
-        cmd.Execute();
+        device.WaitForPresent(waitPresent);
 
-        device.Present();
+        const uint32_t slot = device.GetCurrentBackBufferIndex();
+
+        allocators[slot].Reset();
+        lists[slot]->Reset(allocators[slot]);
+
+        lists[slot]->SetPipeline(pso);
+        lists[slot]->SetRenderTarget(device.GetCurrentBackBufferHandle());
+        lists[slot]->SetDepthBuffer(depthBufferHandle);
+        lists[slot]->SetVertexBuffer(vbHandle);
+        lists[slot]->SetIndexBuffer(ibHandle);
+        lists[slot]->SetConstantBuffer(ConstantBuffer(cb));
+        lists[slot]->Clear(float4(0.05f, 0.10f, 0.18f, 1.0f), 1.0f);
+        lists[slot]->DrawIndexed();
+        lists[slot]->Close();
+
+        const uint64_t submitFence = queue.Execute(*lists[slot]);
+        device.Present(submitFence);
     }
+
+    device.WaitForPresents();
+    device.WaitIdle();
 
     device.Release(depthBufferHandle);
     device.Release(vbHandle);
     device.Release(ibHandle);
-    device.WaitIdle();
+
+    for (auto& l : lists)
+        l.reset();
 
     g_device = nullptr;
     return int(msg.wParam);

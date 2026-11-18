@@ -11,25 +11,29 @@
 #include "DepthBuffer.h"
 #include "Buffers.h"
 #include "ResourceHandles.h"
-#include <future>
-#include <vector>
+#include "CommandTypes.h"
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
 class Device;
+class CommandAllocator;
+class CommandQueue;
 
 class SOFTX_API CommandList
 {
 public:
     explicit CommandList(Device& device);
-    ~CommandList();
+    ~CommandList() = default;
 
     CommandList(const CommandList&) = delete;
     CommandList& operator=(const CommandList&) = delete;
 
-    void Begin();
-    void End();
-    void Reset();
+    void Reset(CommandAllocator& allocator);
+
+    void Close();
+
+    bool IsRecording() const { return recording; }
+    bool IsClosed()    const { return closed; }
 
     void SetPipeline(const PipelineState& pso);
     void SetRenderTarget(TextureHandle rt);
@@ -45,43 +49,19 @@ public:
     void DrawInstanced();
     void DrawIndexedInstanced();
 
-    void Execute();
-    std::future<void> ExecuteAsync();
-
 private:
-    struct DrawCall
-    {
-        PipelineState pso;
-        TextureHandle rt;
-        DepthBufferHandle db;
-        VertexBufferHandle vb;
-        IndexBufferHandle ib;
-        ConstantBuffer cb;
-        InstanceBufferHandle instanceBuffer;
-        bool indexed = false;
-        bool instanced = false;
-    };
+    friend class CommandQueue;
 
-    struct ClearCommand
-    {
-        TextureHandle rt;
-        DepthBufferHandle db;
-        float4 color;
-        float depth = 1.0f;
-    };
-
-    struct Command
-    {
-        enum class Kind { Clear, Draw } kind;
-        ClearCommand clear;
-        DrawCall draw;
-    };
+    void ExecuteOnDevice();
 
     void ExecuteClear(const ClearCommand& c);
     void ExecuteDraw(const DrawCall& d);
 
-    Device* device;
+    Device* device = nullptr;
+    CommandAllocator* allocator = nullptr;
+
     bool recording = false;
+    bool closed = true;
 
     PipelineState currentPso;
     TextureHandle currentRt;
@@ -90,8 +70,6 @@ private:
     IndexBufferHandle currentIb;
     ConstantBuffer currentCb;
     InstanceBufferHandle currentInstanceBuffer;
-
-    std::vector<Command> commands;
 };
 
 SOFTX_END

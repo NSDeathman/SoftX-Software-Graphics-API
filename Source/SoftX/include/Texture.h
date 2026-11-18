@@ -27,6 +27,9 @@ public:
     void Write(uint2 coords, float4 color);
     float4 Read(uint2 coords) const;
 
+    const __m128* GetRawPixels() const { return pixels; }
+    uint PaddedWidth() const { return widthPadded; }
+
     void SaveToTGA(const char* filename) const;
 
     uint Width() const { return resolution.x; }

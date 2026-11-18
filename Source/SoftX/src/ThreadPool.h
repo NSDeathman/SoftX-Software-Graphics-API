@@ -21,7 +21,7 @@ public:
     ThreadPool(size_t numThreads) : stop(false), activeTasks(0), backgroundStop(false)
     {
         if (numThreads == 0)
-            numThreads = std::thread::hardware_concurrency();
+            numThreads = std::thread::hardware_concurrency() - 2;
 
         for (size_t i = 0; i < numThreads; ++i)
         {

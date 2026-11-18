@@ -66,4 +66,17 @@
 #else
 #define SOFTX_VERIFY(x) assert(x)
 #endif
+
+#define TODO_STR_HELPER(x) #x
+#define TODO_STR(x) TODO_STR_HELPER(x)
+
+#if defined(_MSC_VER)
+#define TODO_PRAGMA(x) __pragma(x)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TODO_PRAGMA(x) _Pragma(#x)
+#else
+#define TODO_PRAGMA(x)
+#endif
+
+#define TODO(msg) TODO_PRAGMA(message(__FILE__ "(" TODO_STR(__LINE__) ") : TODO - " msg))
 /////////////////////////////////////////////////////////////////

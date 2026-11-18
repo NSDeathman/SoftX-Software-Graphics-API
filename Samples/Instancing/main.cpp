@@ -15,6 +15,18 @@
 #include <cmath>
 #include <random>
 /////////////////////////////////////////////////////////////////
+#ifdef USE_OPTICK
+#pragma message("USE_OPTICK is defined")
+#else
+#pragma message("USE_OPTICK is NOT defined")
+#endif
+
+#ifdef ENABLE_PROFILER
+#pragma message("ENABLE_PROFILER is defined")
+#else
+#pragma message("ENABLE_PROFILER is NOT defined")
+#endif
+/////////////////////////////////////////////////////////////////
 using namespace SoftX;
 using namespace AfterMath;
 /////////////////////////////////////////////////////////////////
@@ -119,6 +131,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 DestroyWindow(hWnd);
             else if (wParam == 'I')
                 g_useInstancing = !g_useInstancing;
+            else if (wParam == 'P')
+            {
+                PROFILE_STOP_CAPTURE();
+                PROFILE_SAVE_CAPTURE("optic_capture");
+            }
             return 0;
 
         case WM_SIZE:
@@ -152,7 +169,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
     HWND wnd = CreateWindowEx(0,
                               "SoftXInstancingDemo",
-                              "SoftX Instancing Demo",
+                              "SoftX Instancing Demo (Async Present)",
                               WS_OVERLAPPEDWINDOW,
                               CW_USEDEFAULT,
                               CW_USEDEFAULT,
@@ -167,22 +184,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     ShowWindow(wnd, nCmdShow);
     UpdateWindow(wnd);
 
-    // ---- device ----
     DeviceConfig config;
     config.backBufferSize = g_windowSize;
     config.mode = PresentationMode::Windowed;
     config.hwnd = wnd;
+    config.swapChainBufferCount = 3;
     Device device(config);
     g_device = &device;
 
     DepthBufferHandle depthBufferHandle = device.CreateDepthBuffer(g_windowSize);
 
     VertexBufferHandle vbHandle = device.CreateVertexBuffer();
-    IndexBufferHandle  ibHandle = device.CreateIndexBuffer();
+    IndexBufferHandle ibHandle = device.CreateIndexBuffer();
     CreateCube(*device.GetVertexBuffer(vbHandle), *device.GetIndexBuffer(ibHandle));
-
-    InstanceBufferHandle instancesHandle = device.CreateInstanceBuffer();
-    device.GetInstanceBuffer(instancesHandle)->Reserve(CUBE_COUNT);
 
     std::mt19937 rng(1337);
     const float halfExtent = 50.0f;
@@ -190,11 +204,22 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     std::vector<float4x4> baseWorld(CUBE_COUNT);
     for (int i = 0; i < CUBE_COUNT; ++i)
     {
-        float x = dist(rng);
-        float y = dist(rng);
-        float z = dist(rng);
+        float x = dist(rng), y = dist(rng), z = dist(rng);
         baseWorld[i] = translation(float3(x, y, z));
     }
+
+    const uint32_t ringSize = device.GetSwapChainBufferCount();
+
+    std::vector<InstanceBufferHandle> instancesHandles(ringSize);
+    for (uint32_t i = 0; i < ringSize; ++i)
+    {
+        instancesHandles[i] = device.CreateInstanceBuffer();
+        device.GetInstanceBuffer(instancesHandles[i])->Reserve(CUBE_COUNT);
+    }
+
+    std::vector<CbData> seqCbs(CUBE_COUNT);
+
+    std::vector<PerInstanceData> tempInst(CUBE_COUNT);
 
     PipelineState psoSeq;
     psoSeq.viewport = Viewport(0, 0, (float)g_windowSize.x, (float)g_windowSize.y, 0.0f, 1.0f);
@@ -209,21 +234,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     psoInst.vertexShader = SharedVS;
     psoInst.instanceShader = InstanceTransform;
 
-    std::vector<CbData> seqCbs(CUBE_COUNT);
+    std::vector<CommandAllocator> allocators(ringSize);
+    std::vector<std::unique_ptr<CommandList>> lists(ringSize);
+    for (uint32_t i = 0; i < ringSize; ++i)
+        lists[i] = device.CreateCommandList();
 
-    CommandList cmd(device);
+    CommandQueue& queue = device.GetCommandQueue();
+
     uint2 lastSize = g_windowSize;
-
     auto lastTime = std::chrono::steady_clock::now();
     g_fpsLastTime = lastTime;
+
+    PROFILE_THREAD("MainThread");
+    PROFILE_START_CAPTURE();
 
     MSG msg = {};
     while (msg.message != WM_QUIT)
     {
+        PROFILE_FRAME("MainThread");
+        PROFILE_SCOPE("Frame")
         if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
+            if (msg.message == WM_QUIT)
+                break;
         }
 
         auto now = std::chrono::steady_clock::now();
@@ -249,7 +284,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
             SetWindowTextA(wnd, title);
         }
 
-        Texture* backBuffer = device.GetTexture(device.GetBackBufferHandle());
+        Texture* backBuffer = device.GetTexture(device.GetCurrentBackBufferHandle());
+        if (!backBuffer)
+            continue;
         uint2 currentSize = backBuffer->Size();
         if (currentSize.x != lastSize.x || currentSize.y != lastSize.y)
         {
@@ -258,48 +295,59 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
             device.Release(depthBufferHandle);
             depthBufferHandle = device.CreateDepthBuffer(g_windowSize);
 
-            psoSeq.viewport  = Viewport(0, 0, (float)currentSize.x, (float)currentSize.y, 0.0f, 1.0f);
+            psoSeq.viewport = Viewport(0, 0, (float)currentSize.x, (float)currentSize.y, 0.0f, 1.0f);
             psoInst.viewport = psoSeq.viewport;
             lastSize = currentSize;
         }
 
+        const uint64_t waitPresent = device.BeginFrame();
+
         float3 eye = float3(cosf(g_cameraAngle) * CAMERA_RADIUS, CAMERA_HEIGHT, sinf(g_cameraAngle) * CAMERA_RADIUS);
         float4x4 view = look_at(eye, float3(0.0f, 0.0f, 0.0f));
-        float4x4 proj = perspective(Constants::degrees_to_radians(60.0f), float(g_windowSize.x) / float(g_windowSize.y));
+        float4x4 proj =
+            perspective(Constants::degrees_to_radians(60.0f), float(g_windowSize.x) / float(g_windowSize.y));
         float4x4 viewProj = view * proj;
+
+        for (int i = 0; i < CUBE_COUNT; ++i)
+        {
+            tempInst[i].worldMatrix = baseWorld[i] * viewProj;
+            tempInst[i].color = float4(0.2f, 0.8f, 0.3f, 1.0f);
+        }
+
+        if (!g_useInstancing)
+        {
+            for (int i = 0; i < CUBE_COUNT; ++i)
+            {
+                seqCbs[i].modelViewProjection = tempInst[i].worldMatrix;
+                seqCbs[i].objectColor = tempInst[i].color;
+            }
+        }
+
+        device.WaitForPresent(waitPresent);
+
+        const uint32_t slot = device.GetCurrentBackBufferIndex();
 
         if (g_useInstancing)
         {
-            InstanceBuffer* instances = device.GetInstanceBuffer(instancesHandle);
+            InstanceBuffer* instances = device.GetInstanceBuffer(instancesHandles[slot]);
             instances->Clear();
             for (int i = 0; i < CUBE_COUNT; ++i)
-            {
-                PerInstanceData data;
-                data.worldMatrix = baseWorld[i] * viewProj;
-                data.color = float4(0.2f, 0.8f, 0.3f, 1.0f);
-                instances->Add(InstanceData(data));
-            }
-        }
-        else
-        {
-            for (int i = 0; i < CUBE_COUNT; ++i)
-            {
-                seqCbs[i].modelViewProjection = baseWorld[i] * viewProj;
-                seqCbs[i].objectColor = float4(0.2f, 0.8f, 0.3f, 1.0f);
-            }
+                instances->Add(InstanceData(tempInst[i]));
         }
 
-        cmd.Begin();
+        allocators[slot].Reset();
+        lists[slot]->Reset(allocators[slot]);
+        auto& cmd = *lists[slot];
 
         if (g_useInstancing)
         {
             PROFILE_SCOPE("Instanced draw");
             cmd.SetPipeline(psoInst);
-            cmd.SetRenderTarget(device.GetBackBufferHandle());
+            cmd.SetRenderTarget(device.GetCurrentBackBufferHandle());
             cmd.SetDepthBuffer(depthBufferHandle);
             cmd.SetVertexBuffer(vbHandle);
             cmd.SetIndexBuffer(ibHandle);
-            cmd.SetInstanceBuffer(instancesHandle);
+            cmd.SetInstanceBuffer(instancesHandles[slot]);
             cmd.Clear(float4(0.05f, 0.10f, 0.18f, 1.0f), 1.0f);
             cmd.DrawIndexedInstanced();
         }
@@ -307,7 +355,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         {
             PROFILE_SCOPE("Sequential draws");
             cmd.SetPipeline(psoSeq);
-            cmd.SetRenderTarget(device.GetBackBufferHandle());
+            cmd.SetRenderTarget(device.GetCurrentBackBufferHandle());
             cmd.SetDepthBuffer(depthBufferHandle);
             cmd.SetVertexBuffer(vbHandle);
             cmd.SetIndexBuffer(ibHandle);
@@ -319,17 +367,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
             }
         }
 
-        cmd.End();
-        cmd.Execute();
+        cmd.Close();
 
-        device.Present();
+        const uint64_t submitFence = queue.Execute(cmd);
+        device.Present(submitFence);
     }
+
+    device.WaitForPresents();
+    device.WaitIdle();
 
     device.Release(depthBufferHandle);
     device.Release(vbHandle);
     device.Release(ibHandle);
-    device.Release(instancesHandle);
-    device.WaitIdle();
+    for (auto h : instancesHandles)
+        device.Release(h);
+
+    for (auto& l : lists)
+        l.reset();
 
     g_device = nullptr;
     return int(msg.wParam);

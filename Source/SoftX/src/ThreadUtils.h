@@ -25,6 +25,8 @@ inline void DispatchWorkers(const std::function<void()>& task)
 template <typename Index, typename Func>
 void SmartParallelFor(Index start, Index end, Index step, Func&& func)
 {
+    PROFILE_SCOPE("SmartParallelFor")
+
     if (end <= start) return;
 
     auto& pool = ThreadPoolManager::Get();

@@ -16,8 +16,12 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include <future>
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
+
+class CommandQueue;
+class CommandList;
 
 enum class PresentationMode { Headless, Windowed };
 
@@ -27,6 +31,8 @@ struct DeviceConfig
     PresentationMode mode = PresentationMode::Headless;
     void* hwnd = nullptr;
     uint workerThreads = 0;
+    uint swapChainBufferCount = 2;
+    uint framesInFlight = 0;
 };
 
 class SOFTX_API Device
@@ -38,7 +44,19 @@ public:
     Device(const Device&) = delete;
     Device& operator=(const Device&) = delete;
 
-    TextureHandle GetBackBufferHandle(uint index = 0);
+    uint32_t GetSwapChainBufferCount() const { return swapChainBufferCount; }
+    uint32_t GetCurrentBackBufferIndex() const { return currentBufferIndex; }
+    uint32_t GetFramesInFlight() const { return config.framesInFlight ? config.framesInFlight : swapChainBufferCount; }
+
+    TextureHandle GetBackBufferHandle(uint index);
+    TextureHandle GetCurrentBackBufferHandle() const { return swapChainBuffers[currentBufferIndex]; }
+
+    uint64_t BeginFrame();
+
+    void WaitForPresent(uint64_t presentFenceValue);
+
+    void Present(uint64_t renderFenceValue);
+    void WaitForPresents();
 
     VertexBufferHandle CreateVertexBuffer();
     IndexBufferHandle CreateIndexBuffer();
@@ -58,17 +76,24 @@ public:
     void Release(DepthBufferHandle h);
     void Release(InstanceBufferHandle h);
 
-    void Resize(uint2 newSize);
-    void Present();
-    void WaitIdle();
+    CommandQueue& GetCommandQueue();
+    const CommandQueue& GetCommandQueue() const;
+    std::unique_ptr<CommandList> CreateCommandList();
 
-    uint64_t NextSubmissionEpoch();
-    void ReportCompletion(uint64_t epoch);
+    void Resize(uint2 newSize);
+    void WaitIdle();
     void CollectGarbage();
 
 private:
     static constexpr size_t SOFTX_MAX_PENDING_RELEASES = 64;
+
     void QueueRelease(std::function<void()> deleter);
+    void RecreateSwapChainBuffers(uint2 size);
+
+#ifdef _WIN32
+    void BlitBackBufferToWindow(Texture* bb);
+    std::vector<uint8_t> blitScratch;
+#endif
 
     DeviceConfig config;
 
@@ -79,7 +104,14 @@ private:
     ResourcePool<InstanceBuffer, ResourceType::InstanceBuffer> instanceBuffers;
 
     ResourcePool<Texture, ResourceType::Texture> backBufferPool;
-    std::vector<TextureHandle> backBufferHandles;
+    std::vector<TextureHandle> swapChainBuffers;
+    std::vector<uint64_t> backBufferFences;
+    uint32_t swapChainBufferCount = 2;
+    uint32_t currentBufferIndex = 0;
+    Fence presentFence;
+    std::vector<uint64_t> backBufferPresentFenceValues;
+    std::atomic<uint64_t> nextPresentFenceValue{ 0 };
+    std::vector<std::future<void>> presentFutures;
 
     struct PendingRelease
     {
@@ -88,14 +120,7 @@ private:
     };
     std::vector<PendingRelease> pendingReleases;
 
-    std::atomic<uint64_t> submittedEpoch{ 0 };
-    std::atomic<uint64_t> completedEpoch{ 0 };
-
-#ifdef _WIN32
-    void* windowDC = nullptr;
-    void* dibSection = nullptr;
-    void PresentWindowed();
-#endif
+    std::unique_ptr<CommandQueue> defaultQueue;
 };
 
 SOFTX_END
