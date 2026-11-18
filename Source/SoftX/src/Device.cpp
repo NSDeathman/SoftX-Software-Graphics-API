@@ -5,6 +5,7 @@
 /////////////////////////////////////////////////////////////////
 #include "../include/SoftX.h"
 #include "ThreadUtils.h"
+#include <algorithm>
 #ifdef _WIN32
 #include <Windows.h>
 #endif
@@ -14,28 +15,143 @@ SOFTX_BEGIN
 Device::Device(const DeviceConfig& cfg) : config(cfg)
 {
     ThreadPoolManager::Initialize(cfg.workerThreads);
-    backBuffers.push_back(std::make_shared<Texture>(cfg.backBufferSize));
+
+    auto bb = std::make_unique<Texture>(cfg.backBufferSize);
+    backBufferHandles.push_back(backBufferPool.Add(std::move(bb), /*permanent=*/true));
 }
 
 Device::~Device()
 {
 #ifdef _WIN32
     if (dibSection) DeleteObject(static_cast<HBITMAP>(dibSection));
-    if (windowDC) ReleaseDC(static_cast<HWND>(config.hwnd), static_cast<HDC>(windowDC));
+    if (windowDC)   ReleaseDC(static_cast<HWND>(config.hwnd), static_cast<HDC>(windowDC));
 #endif
+
+    ThreadPoolManager::Get().wait();
+
+#ifndef NDEBUG
+    if (vertexBuffers.AliveCount() || 
+        indexBuffers.AliveCount() || 
+        textures.AliveCount() || 
+        depthBuffers.AliveCount() || 
+        instanceBuffers.AliveCount())
+    {
+        std::cerr << "[SoftX] Device destroyed with live user resources: VB="
+                  << vertexBuffers.AliveCount()
+                  << " IB=" << indexBuffers.AliveCount()
+                  << " Tex=" << textures.AliveCount()
+                  << " DB=" << depthBuffers.AliveCount()
+                  << " Inst=" << instanceBuffers.AliveCount()
+                  << std::endl;
+    }
+#endif
+
     ThreadPoolManager::Shutdown();
 }
 
-Texture* Device::GetBackBuffer(uint index)
+VertexBufferHandle Device::CreateVertexBuffer()
 {
-    if (index >= backBuffers.size())
-        SOFTX_THROW(InvalidState("GetBackBuffer: index out of range"));
-    return backBuffers[index].get();
+    return vertexBuffers.Add(std::make_unique<VertexBuffer>());
 }
 
-std::shared_ptr<DepthBuffer> Device::CreateDepthBuffer(uint2 size)
+IndexBufferHandle Device::CreateIndexBuffer()
 {
-    return std::make_shared<DepthBuffer>(size);
+    return indexBuffers.Add(std::make_unique<IndexBuffer>());
+}
+
+TextureHandle Device::CreateTexture(uint2 size)
+{
+    return textures.Add(std::make_unique<Texture>(size));
+}
+
+DepthBufferHandle Device::CreateDepthBuffer(uint2 size)
+{
+    return depthBuffers.Add(std::make_unique<DepthBuffer>(size));
+}
+
+InstanceBufferHandle Device::CreateInstanceBuffer()
+{
+    return instanceBuffers.Add(std::make_unique<InstanceBuffer>());
+}
+
+VertexBuffer* Device::GetVertexBuffer(VertexBufferHandle h) { return vertexBuffers.Get(h); }
+IndexBuffer* Device::GetIndexBuffer(IndexBufferHandle  h) { return indexBuffers.Get(h); }
+DepthBuffer* Device::GetDepthBuffer(DepthBufferHandle  h) { return depthBuffers.Get(h); }
+InstanceBuffer* Device::GetInstanceBuffer(InstanceBufferHandle h) { return instanceBuffers.Get(h); }
+
+Texture* Device::GetTexture(TextureHandle h)
+{
+    if (Texture* t = textures.Get(h)) return t;
+    return backBufferPool.Get(h);
+}
+
+TextureHandle Device::GetBackBufferHandle(uint index)
+{
+    if (index >= backBufferHandles.size())
+        SOFTX_THROW(InvalidArgument("GetBackBufferHandle: index out of range"));
+    return backBufferHandles[index];
+}
+
+void Device::QueueRelease(std::function<void()> deleter)
+{
+    pendingReleases.push_back({ submittedEpoch.load(), std::move(deleter) });
+
+    CollectGarbage();
+
+    if (pendingReleases.size() > SOFTX_MAX_PENDING_RELEASES)
+        WaitIdle();
+}
+
+void Device::Release(VertexBufferHandle h)
+{
+    QueueRelease([this, h]() { vertexBuffers.Remove(h); });
+}
+
+void Device::Release(IndexBufferHandle h)
+{
+    QueueRelease([this, h]() { indexBuffers.Remove(h); });
+}
+
+void Device::Release(TextureHandle h)
+{
+    for (auto bb : backBufferHandles)
+        if (bb == h)
+            return;
+
+    QueueRelease([this, h]() { textures.Remove(h); });
+}
+
+void Device::Release(DepthBufferHandle h)
+{
+    QueueRelease([this, h]() { depthBuffers.Remove(h); });
+}
+
+void Device::Release(InstanceBufferHandle h)
+{
+    QueueRelease([this, h]() { instanceBuffers.Remove(h); });
+}
+
+uint64_t Device::NextSubmissionEpoch()
+{
+    return ++submittedEpoch;
+}
+
+void Device::ReportCompletion(uint64_t epoch)
+{
+    uint64_t prev = completedEpoch.load();
+    while (prev < epoch && !completedEpoch.compare_exchange_weak(prev, epoch)) {}
+}
+
+void Device::CollectGarbage()
+{
+    const uint64_t safe = completedEpoch.load();
+    auto it = std::remove_if(pendingReleases.begin(), pendingReleases.end(),
+        [safe](const PendingRelease& p)
+        {
+            if (p.epoch <= safe) { p.deleter(); return true; }
+            return false;
+        });
+    pendingReleases.erase(it, pendingReleases.end());
 }
 
 void Device::Resize(uint2 newSize)
@@ -44,13 +160,23 @@ void Device::Resize(uint2 newSize)
         return;
 
     config.backBufferSize = newSize;
-    backBuffers.clear();
-    backBuffers.push_back(std::make_shared<Texture>(newSize));
+
+    const uint64_t epoch = submittedEpoch.load();
+    for (auto h : backBufferHandles)
+        pendingReleases.push_back({ epoch, [this, h]() { backBufferPool.Remove(h, /*force=*/true); } });
+    backBufferHandles.clear();
+
+    auto bb = std::make_unique<Texture>(newSize);
+    backBufferHandles.push_back(backBufferPool.Add(std::move(bb), /*permanent=*/true));
+
+    CollectGarbage();
 }
 
 void Device::WaitIdle()
 {
     ThreadPoolManager::Get().wait();
+    completedEpoch.store(submittedEpoch.load());
+    CollectGarbage();
 }
 
 void Device::Present()
@@ -65,6 +191,7 @@ void Device::Present()
         break;
 #endif
     }
+    CollectGarbage();
 }
 
 #ifdef _WIN32
@@ -73,7 +200,9 @@ void Device::PresentWindowed()
     HWND hwnd = static_cast<HWND>(config.hwnd);
     if (!hwnd) return;
 
-    Texture* bb = GetBackBuffer();
+    Texture* bb = GetTexture(GetBackBufferHandle());
+    if (!bb) return;
+
     HDC hdc = GetDC(hwnd);
     if (!hdc) return;
 
@@ -101,9 +230,9 @@ void Device::PresentWindowed()
 
     RECT client; GetClientRect(hwnd, &client);
     StretchDIBits(hdc,
-                  0, 0, client.right, client.bottom,
-                  0, 0, static_cast<int>(bb->Width()), static_cast<int>(bb->Height()),
-                  bytes.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+        0, 0, client.right, client.bottom,
+        0, 0, static_cast<int>(bb->Width()), static_cast<int>(bb->Height()),
+        bytes.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
 
     ReleaseDC(hwnd, hdc);
 }

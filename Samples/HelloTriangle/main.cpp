@@ -31,7 +31,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
         if (g_device && wParam != SIZE_MINIMIZED)
         {
-            int newWidth = LOWORD(lParam);
+            int newWidth  = LOWORD(lParam);
             int newHeight = HIWORD(lParam);
 
             if (newWidth > 0 && newHeight > 0)
@@ -59,17 +59,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
     RECT rc = { 0, 0, (LONG)windowSize.x, (LONG)windowSize.y };
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
-    HWND wnd = CreateWindowEx(0, 
-                              "Hello Triangle", 
+    HWND wnd = CreateWindowEx(0,
+                              "Hello Triangle",
                               "SoftX Triangle Demo",
-                              WS_OVERLAPPEDWINDOW, 
-                              CW_USEDEFAULT, 
+                              WS_OVERLAPPEDWINDOW,
                               CW_USEDEFAULT,
-                              rc.right - rc.left, 
+                              CW_USEDEFAULT,
+                              rc.right - rc.left,
                               rc.bottom - rc.top,
-                              nullptr, 
-                              nullptr, 
-                              hInstance, 
+                              nullptr,
+                              nullptr,
+                              hInstance,
                               nullptr);
     if (!wnd) return -1;
 
@@ -84,13 +84,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     Device device(config);
     g_device = &device;
 
-    auto depthBuffer = device.CreateDepthBuffer(windowSize);
+    DepthBufferHandle depthBufferHandle = device.CreateDepthBuffer(windowSize);
 
-    VertexBuffer vb;
-    vb.Reserve(3);
-    vb.Add({ float3(-1.0f, -1.0f, 0.0f), float4(1.0f, 0.0f, 0.0f, 0.0f) });
-    vb.Add({ float3(0.0f,  1.0f, 0.0f), float4(0.0f, 1.0f, 0.0f, 0.0f) });
-    vb.Add({ float3(1.0f, -1.0f, 0.0f), float4(0.0f, 0.0f, 1.0f, 0.0f) });
+    VertexBufferHandle vbHandle = device.CreateVertexBuffer();
+    {
+        VertexBuffer* vb = device.GetVertexBuffer(vbHandle);
+        vb->Reserve(3);
+        vb->Add({ float3(-1.0f, -1.0f, 0.0f), float4(1.0f, 0.0f, 0.0f, 0.0f) });
+        vb->Add({ float3( 0.0f,  1.0f, 0.0f), float4(0.0f, 1.0f, 0.0f, 0.0f) });
+        vb->Add({ float3( 1.0f, -1.0f, 0.0f), float4(0.0f, 0.0f, 1.0f, 0.0f) });
+    }
 
     PipelineState pso;
     pso.viewport = Viewport(0.0f, 0.0f, (float)windowSize.x, (float)windowSize.y, 0.0f, 1.0f);
@@ -123,19 +126,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
             DispatchMessage(&msg);
         }
 
-        uint2 currentSize = device.GetBackBuffer()->Size();
+        Texture* backBuffer = device.GetTexture(device.GetBackBufferHandle());
+        uint2 currentSize = backBuffer->Size();
+
         if (currentSize.x != lastSize.x || currentSize.y != lastSize.y)
         {
-            depthBuffer = device.CreateDepthBuffer(currentSize);
+            device.Release(depthBufferHandle);
+            depthBufferHandle = device.CreateDepthBuffer(currentSize);
+
             pso.viewport = Viewport(0.0f, 0.0f, (float)currentSize.x, (float)currentSize.y, 0.0f, 1.0f);
             lastSize = currentSize;
         }
 
         cmd.Begin();
         cmd.SetPipeline(pso);
-        cmd.SetRenderTarget(device.GetBackBuffer());
-        cmd.SetDepthBuffer(depthBuffer.get());
-        cmd.SetVertexBuffer(vb);
+        cmd.SetRenderTarget(device.GetBackBufferHandle());
+        cmd.SetDepthBuffer(depthBufferHandle);
+        cmd.SetVertexBuffer(vbHandle);
         cmd.Clear(float4(0.10f, 0.05f, 0.12f, 1.0f), 1.0f);
         cmd.Draw();
         cmd.End();
@@ -143,6 +150,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
         device.Present();
     }
+
+    device.Release(depthBufferHandle);
+    device.Release(vbHandle);
+    device.WaitIdle();
 
     g_device = nullptr;
     return 0;

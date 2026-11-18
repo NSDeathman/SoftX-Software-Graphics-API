@@ -9,11 +9,11 @@
 #include "TileGrid.h"
 #include "RasterizerCommon.h"
 #include "Rasterizer.h"
+#include <atomic>
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
 CommandList::CommandList(Device& dev) : device(&dev) {}
-
 CommandList::~CommandList() = default;
 
 void CommandList::Begin()
@@ -38,12 +38,12 @@ void CommandList::Reset()
 }
 
 void CommandList::SetPipeline(const PipelineState & pso) { currentPso = pso; }
-void CommandList::SetRenderTarget(Texture * rt) { currentRt = rt; }
-void CommandList::SetDepthBuffer(DepthBuffer * db) { currentDb = db; }
-void CommandList::SetVertexBuffer(VertexBuffer vb) { currentVb = std::move(vb); }
-void CommandList::SetIndexBuffer(IndexBuffer ib) { currentIb = std::move(ib); }
+void CommandList::SetRenderTarget(TextureHandle rt) { currentRt = rt; }
+void CommandList::SetDepthBuffer(DepthBufferHandle db) { currentDb = db; }
+void CommandList::SetVertexBuffer(VertexBufferHandle vb) { currentVb = vb; }
+void CommandList::SetIndexBuffer(IndexBufferHandle ib) { currentIb = ib; }
 void CommandList::SetConstantBuffer(ConstantBuffer cb) { currentCb = std::move(cb); }
-void CommandList::SetInstanceBuffer(InstanceBuffer ib) { currentInstanceBuffer = std::move(ib); }
+void CommandList::SetInstanceBuffer(InstanceBufferHandle ib) { currentInstanceBuffer = ib; }
 
 void CommandList::Clear(float4 color, float depth)
 {
@@ -127,46 +127,59 @@ void CommandList::Execute()
         switch (c.kind)
         {
         case Command::Kind::Clear: ExecuteClear(c.clear); break;
-        case Command::Kind::Draw:  ExecuteDraw(c.draw);  break;
+        case Command::Kind::Draw:  ExecuteDraw(c.draw);   break;
         }
     }
 }
 
 std::future<void> CommandList::ExecuteAsync()
 {
-    return ThreadPoolManager::Get().enqueueBackground([this]() { Execute(); });
+    const uint64_t epoch = device->NextSubmissionEpoch();
+    return ThreadPoolManager::Get().enqueueBackground([this, epoch]()
+        {
+            Execute();
+            device->ReportCompletion(epoch);
+        });
 }
 
 void CommandList::ExecuteClear(const ClearCommand & c)
 {
-    if (c.rt) c.rt->Clear(c.color);
-    if (c.db) c.db->Clear(c.depth);
+    Texture* rt = device->GetTexture(c.rt);
+    DepthBuffer* db = device->GetDepthBuffer(c.db);
+    if (rt) rt->Clear(c.color);
+    if (db) db->Clear(c.depth);
 }
 
-void CommandList::ExecuteDraw(const DrawCall& d)
+void CommandList::ExecuteDraw(const DrawCall & d)
 {
-    if (!d.rt || !d.db || d.vb.IsEmpty())
-        SOFTX_THROW(InvalidState("CommandList::Draw missing RT/DB/VB"));
+    Texture* rt = device->GetTexture(d.rt);
+    DepthBuffer* db = device->GetDepthBuffer(d.db);
+    VertexBuffer* vb = device->GetVertexBuffer(d.vb);
 
-    if (d.instanced && d.instanceBuffer.IsEmpty())
-        SOFTX_THROW(InvalidState("CommandList::DrawInstanced: empty instance buffer"));
-    if (d.instanced && !d.pso.instanceShader)
-        SOFTX_THROW(InvalidState("CommandList::DrawInstanced: instanceShader not set"));
+    if (!rt || !db || !vb || vb->IsEmpty())
+        SOFTX_THROW(InvalidResourceHandle("Draw: missing RT/DB/VB"));
 
-    const size_t vertexCount = d.vb.Size();
-    const size_t indexCount = d.indexed ? d.ib.Size() : vertexCount;
-    const size_t instanceCount = d.instanced ? d.instanceBuffer.Size() : size_t(1);
+    IndexBuffer* ib = d.indexed ? device->GetIndexBuffer(d.ib) : nullptr;
+    InstanceBuffer* instances = d.instanced ? device->GetInstanceBuffer(d.instanceBuffer) : nullptr;
+
+    if (d.indexed && !ib)
+        SOFTX_THROW(InvalidResourceHandle("DrawIndexed: missing index buffer"));
+    if (d.instanced && (!instances || !d.pso.instanceShader))
+        SOFTX_THROW(InvalidResourceHandle("DrawInstanced: missing instance buffer or shader"));
+
+    const size_t vertexCount = vb->Size();
+    const size_t indexCount = d.indexed ? ib->Size() : vertexCount;
+    const size_t instanceCount = d.instanced ? instances->Size() : size_t(1);
 
     std::vector<Interpolant> vertexOutputs(vertexCount);
     for (size_t i = 0; i < vertexCount; ++i)
-        vertexOutputs[i] = d.pso.vertexShader(d.vb[i], d.cb);
+        vertexOutputs[i] = d.pso.vertexShader((*vb)[i], d.cb);
 
     std::vector<RasterizerCommon::TriangleSetup> setups;
     setups.reserve(instanceCount * (indexCount / 3));
 
     std::vector<Interpolant> instVerts;
-    if (d.instanced)
-        instVerts.resize(vertexCount);
+    if (d.instanced) instVerts.resize(vertexCount);
 
     const std::vector<Interpolant>* activeVerts = &vertexOutputs;
 
@@ -174,7 +187,7 @@ void CommandList::ExecuteDraw(const DrawCall& d)
     {
         if (d.instanced)
         {
-            const InstanceData& instData = d.instanceBuffer[inst];
+            const InstanceData& instData = (*instances)[inst];
             for (size_t i = 0; i < vertexCount; ++i)
                 instVerts[i] = d.pso.instanceShader(vertexOutputs[i], instData);
             activeVerts = &instVerts;
@@ -191,9 +204,9 @@ void CommandList::ExecuteDraw(const DrawCall& d)
             Interpolant a, b, c;
             if (d.indexed)
             {
-                a = verts[d.ib[i]];
-                b = verts[d.ib[i + 1]];
-                c = verts[d.ib[i + 2]];
+                a = verts[(*ib)[i]];
+                b = verts[(*ib)[i + 1]];
+                c = verts[(*ib)[i + 2]];
             }
             else
             {
@@ -220,7 +233,7 @@ void CommandList::ExecuteDraw(const DrawCall& d)
         return;
 
     TileGrid tileGrid;
-    tileGrid.Build(d.rt->Width(), d.rt->Height(), d.pso.tileSize);
+    tileGrid.Build(rt->Width(), rt->Height(), d.pso.tileSize);
     tileGrid.BinTriangles(setups);
 
     const auto& tiles = tileGrid.GetTiles();
@@ -231,7 +244,7 @@ void CommandList::ExecuteDraw(const DrawCall& d)
         while ((i = nextTile.fetch_add(1)) < tiles.size())
         {
             for (int setupIdx : tiles[i].triangleIndices)
-                Rasterizer::RasterizeTriangle(setups[setupIdx], d.pso, *d.db, *d.rt, d.cb, tiles[i].min, tiles[i].max);
+                Rasterizer::RasterizeTriangle(setups[setupIdx], d.pso, *db, *rt, d.cb, tiles[i].min, tiles[i].max);
         }
     };
     ThreadUtils::DispatchWorkers(worker);

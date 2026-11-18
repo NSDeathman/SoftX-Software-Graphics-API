@@ -175,11 +175,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     Device device(config);
     g_device = &device;
 
-    auto depthBuffer = device.CreateDepthBuffer(g_windowSize);
+    DepthBufferHandle depthBufferHandle = device.CreateDepthBuffer(g_windowSize);
 
-    VertexBuffer vb;
-    IndexBuffer ib;
-    CreateCube(vb, ib);
+    VertexBufferHandle vbHandle = device.CreateVertexBuffer();
+    IndexBufferHandle  ibHandle = device.CreateIndexBuffer();
+    CreateCube(*device.GetVertexBuffer(vbHandle), *device.GetIndexBuffer(ibHandle));
+
+    InstanceBufferHandle instancesHandle = device.CreateInstanceBuffer();
+    device.GetInstanceBuffer(instancesHandle)->Reserve(CUBE_COUNT);
 
     std::mt19937 rng(1337);
     const float halfExtent = 50.0f;
@@ -206,8 +209,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     psoInst.vertexShader = SharedVS;
     psoInst.instanceShader = InstanceTransform;
 
-    InstanceBuffer instances;
-    instances.Reserve(CUBE_COUNT);
     std::vector<CbData> seqCbs(CUBE_COUNT);
 
     CommandList cmd(device);
@@ -248,12 +249,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
             SetWindowTextA(wnd, title);
         }
 
-        uint2 currentSize = device.GetBackBuffer()->Size();
+        Texture* backBuffer = device.GetTexture(device.GetBackBufferHandle());
+        uint2 currentSize = backBuffer->Size();
         if (currentSize.x != lastSize.x || currentSize.y != lastSize.y)
         {
             g_windowSize = currentSize;
-            depthBuffer = device.CreateDepthBuffer(g_windowSize);
-            psoSeq.viewport = Viewport(0, 0, (float)currentSize.x, (float)currentSize.y, 0.0f, 1.0f);
+
+            device.Release(depthBufferHandle);
+            depthBufferHandle = device.CreateDepthBuffer(g_windowSize);
+
+            psoSeq.viewport  = Viewport(0, 0, (float)currentSize.x, (float)currentSize.y, 0.0f, 1.0f);
             psoInst.viewport = psoSeq.viewport;
             lastSize = currentSize;
         }
@@ -265,13 +270,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
         if (g_useInstancing)
         {
-            instances.Clear();
+            InstanceBuffer* instances = device.GetInstanceBuffer(instancesHandle);
+            instances->Clear();
             for (int i = 0; i < CUBE_COUNT; ++i)
             {
                 PerInstanceData data;
                 data.worldMatrix = baseWorld[i] * viewProj;
                 data.color = float4(0.2f, 0.8f, 0.3f, 1.0f);
-                instances.Add(InstanceData(data));
+                instances->Add(InstanceData(data));
             }
         }
         else
@@ -289,11 +295,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         {
             PROFILE_SCOPE("Instanced draw");
             cmd.SetPipeline(psoInst);
-            cmd.SetRenderTarget(device.GetBackBuffer());
-            cmd.SetDepthBuffer(depthBuffer.get());
-            cmd.SetVertexBuffer(vb);
-            cmd.SetIndexBuffer(ib);
-            cmd.SetInstanceBuffer(instances);
+            cmd.SetRenderTarget(device.GetBackBufferHandle());
+            cmd.SetDepthBuffer(depthBufferHandle);
+            cmd.SetVertexBuffer(vbHandle);
+            cmd.SetIndexBuffer(ibHandle);
+            cmd.SetInstanceBuffer(instancesHandle);
             cmd.Clear(float4(0.05f, 0.10f, 0.18f, 1.0f), 1.0f);
             cmd.DrawIndexedInstanced();
         }
@@ -301,10 +307,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         {
             PROFILE_SCOPE("Sequential draws");
             cmd.SetPipeline(psoSeq);
-            cmd.SetRenderTarget(device.GetBackBuffer());
-            cmd.SetDepthBuffer(depthBuffer.get());
-            cmd.SetVertexBuffer(vb);
-            cmd.SetIndexBuffer(ib);
+            cmd.SetRenderTarget(device.GetBackBufferHandle());
+            cmd.SetDepthBuffer(depthBufferHandle);
+            cmd.SetVertexBuffer(vbHandle);
+            cmd.SetIndexBuffer(ibHandle);
             cmd.Clear(float4(0.05f, 0.10f, 0.18f, 1.0f), 1.0f);
             for (int i = 0; i < CUBE_COUNT; ++i)
             {
@@ -318,6 +324,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
         device.Present();
     }
+
+    device.Release(depthBufferHandle);
+    device.Release(vbHandle);
+    device.Release(ibHandle);
+    device.Release(instancesHandle);
+    device.WaitIdle();
 
     g_device = nullptr;
     return int(msg.wParam);

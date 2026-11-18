@@ -8,14 +8,15 @@
 #include "Common.h"
 #include <stdexcept>
 #include <string>
+#include <iostream>
+#include <cstdlib>
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
 class Exception : public std::runtime_error
 {
     public:
-    explicit Exception(const std::string& message)
-        : std::runtime_error(message)
+    explicit Exception(const std::string& message) : std::runtime_error(message)
     {
     }
 };
@@ -23,8 +24,7 @@ class Exception : public std::runtime_error
 class InvalidState : public Exception
 {
     public:
-    explicit InvalidState(const std::string& message)
-        : Exception("Invalid state: " + message)
+    explicit InvalidState(const std::string& message) : Exception("Invalid state: " + message)
     {
     }
 };
@@ -32,8 +32,7 @@ class InvalidState : public Exception
 class InvalidArgument : public Exception
 {
     public:
-    explicit InvalidArgument(const std::string& message)
-        : Exception("Invalid argument: " + message)
+    explicit InvalidArgument(const std::string& message) : Exception("Invalid argument: " + message)
     {
     }
 };
@@ -41,8 +40,7 @@ class InvalidArgument : public Exception
 class PlatformError : public Exception
 {
     public:
-    explicit PlatformError(const std::string& message)
-        : Exception("Platform error: " + message)
+    explicit PlatformError(const std::string& message) : Exception("Platform error: " + message)
     {
     }
 };
@@ -50,8 +48,7 @@ class PlatformError : public Exception
 class NotImplemented : public Exception
 {
     public:
-    explicit NotImplemented(const std::string& feature)
-        : Exception("Not implemented: " + feature)
+    explicit NotImplemented(const std::string& feature) : Exception("Not implemented: " + feature)
     {
     }
 };
@@ -59,8 +56,7 @@ class NotImplemented : public Exception
 class IOError : public Exception
 {
     public:
-    explicit IOError(const std::string& message)
-        : Exception("I/O error: " + message)
+    explicit IOError(const std::string& message) : Exception("I/O error: " + message)
     {
     }
 };
@@ -68,8 +64,15 @@ class IOError : public Exception
 class OutOfMemory : public Exception
 {
     public:
-    explicit OutOfMemory(const std::string& message)
-        : Exception("Out of memory: " + message)
+    explicit OutOfMemory(const std::string& message) : Exception("Out of memory: " + message)
+    {
+    }
+};
+
+class InvalidResourceHandle : public Exception
+{
+public:
+    explicit InvalidResourceHandle(const std::string& message) : Exception("Invalid resource handle: " + message)
     {
     }
 };

@@ -13,6 +13,7 @@
 #include "Pipeline.h"
 #include "DepthBuffer.h"
 #include "Texture.h"
+#include "ResourceHandles.h"
 #include "CommandList.h"
 #include "Device.h"
 /////////////////////////////////////////////////////////////////

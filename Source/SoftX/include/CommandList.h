@@ -9,7 +9,10 @@
 #include "Pipeline.h"
 #include "Texture.h"
 #include "DepthBuffer.h"
+#include "Buffers.h"
+#include "ResourceHandles.h"
 #include <future>
+#include <vector>
 /////////////////////////////////////////////////////////////////
 SOFTX_BEGIN
 
@@ -17,7 +20,7 @@ class Device;
 
 class SOFTX_API CommandList
 {
-    public:
+public:
     explicit CommandList(Device& device);
     ~CommandList();
 
@@ -29,12 +32,12 @@ class SOFTX_API CommandList
     void Reset();
 
     void SetPipeline(const PipelineState& pso);
-    void SetRenderTarget(Texture* rt);
-    void SetDepthBuffer(DepthBuffer* db);
-    void SetVertexBuffer(VertexBuffer vb);
-    void SetIndexBuffer(IndexBuffer ib);
+    void SetRenderTarget(TextureHandle rt);
+    void SetDepthBuffer(DepthBufferHandle db);
+    void SetVertexBuffer(VertexBufferHandle vb);
+    void SetIndexBuffer(IndexBufferHandle ib);
     void SetConstantBuffer(ConstantBuffer cb);
-    void SetInstanceBuffer(InstanceBuffer ib);
+    void SetInstanceBuffer(InstanceBufferHandle ib);
 
     void Clear(float4 color, float depth = 1.0f);
     void Draw();
@@ -45,24 +48,24 @@ class SOFTX_API CommandList
     void Execute();
     std::future<void> ExecuteAsync();
 
-    private:
+private:
     struct DrawCall
     {
         PipelineState pso;
-        Texture* rt = nullptr;
-        DepthBuffer* db = nullptr;
-        VertexBuffer vb;
-        IndexBuffer ib;
+        TextureHandle rt;
+        DepthBufferHandle db;
+        VertexBufferHandle vb;
+        IndexBufferHandle ib;
         ConstantBuffer cb;
-        InstanceBuffer instanceBuffer;
+        InstanceBufferHandle instanceBuffer;
         bool indexed = false;
         bool instanced = false;
     };
 
     struct ClearCommand
     {
-        Texture* rt = nullptr;
-        DepthBuffer* db = nullptr;
+        TextureHandle rt;
+        DepthBufferHandle db;
         float4 color;
         float depth = 1.0f;
     };
@@ -81,12 +84,12 @@ class SOFTX_API CommandList
     bool recording = false;
 
     PipelineState currentPso;
-    Texture* currentRt = nullptr;
-    DepthBuffer* currentDb = nullptr;
-    VertexBuffer currentVb;
-    IndexBuffer currentIb;
+    TextureHandle currentRt;
+    DepthBufferHandle currentDb;
+    VertexBufferHandle currentVb;
+    IndexBufferHandle currentIb;
     ConstantBuffer currentCb;
-    InstanceBuffer currentInstanceBuffer;
+    InstanceBufferHandle currentInstanceBuffer;
 
     std::vector<Command> commands;
 };

@@ -141,11 +141,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     Device device(config);
     g_device = &device;
 
-    auto depthBuffer = device.CreateDepthBuffer(g_windowSize);
+    DepthBufferHandle depthBufferHandle = device.CreateDepthBuffer(g_windowSize);
 
-    VertexBuffer vb;
-    IndexBuffer ib;
-    CreateCube(vb, ib);
+    VertexBufferHandle vbHandle = device.CreateVertexBuffer();
+    IndexBufferHandle  ibHandle = device.CreateIndexBuffer();
+    CreateCube(*device.GetVertexBuffer(vbHandle), *device.GetIndexBuffer(ibHandle));
 
     PipelineState pso;
     pso.viewport = Viewport(0.0f, 0.0f, (float)g_windowSize.x, (float)g_windowSize.y, 0.0f, 1.0f);
@@ -174,16 +174,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         lastTime = now;
         g_cameraAngle += 0.6f * dt;
 
-        uint2 currentSize = device.GetBackBuffer()->Size();
+        Texture* backBuffer = device.GetTexture(device.GetBackBufferHandle());
+        uint2 currentSize = backBuffer->Size();
         if (currentSize.x != lastSize.x || currentSize.y != lastSize.y)
         {
             g_windowSize = currentSize;
-            depthBuffer = device.CreateDepthBuffer(currentSize);
+
+            device.Release(depthBufferHandle);
+            depthBufferHandle = device.CreateDepthBuffer(currentSize);
+
             pso.viewport = Viewport(0.0f, 0.0f, (float)currentSize.x, (float)currentSize.y, 0.0f, 1.0f);
             lastSize = currentSize;
         }
 
-        // Orbit camera
         const float radius = 3.0f;
         const float height = 1.8f;
         float3 eye = float3(cosf(g_cameraAngle) * radius, height, sinf(g_cameraAngle) * radius);
@@ -197,10 +200,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
         cmd.Begin();
         cmd.SetPipeline(pso);
-        cmd.SetRenderTarget(device.GetBackBuffer());
-        cmd.SetDepthBuffer(depthBuffer.get());
-        cmd.SetVertexBuffer(vb);
-        cmd.SetIndexBuffer(ib);
+        cmd.SetRenderTarget(device.GetBackBufferHandle());
+        cmd.SetDepthBuffer(depthBufferHandle);
+        cmd.SetVertexBuffer(vbHandle);
+        cmd.SetIndexBuffer(ibHandle);
         cmd.SetConstantBuffer(ConstantBuffer(cb));
         cmd.Clear(float4(0.05f, 0.10f, 0.18f, 1.0f), 1.0f);
         cmd.DrawIndexed();
@@ -209,6 +212,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
         device.Present();
     }
+
+    device.Release(depthBufferHandle);
+    device.Release(vbHandle);
+    device.Release(ibHandle);
+    device.WaitIdle();
 
     g_device = nullptr;
     return int(msg.wParam);
